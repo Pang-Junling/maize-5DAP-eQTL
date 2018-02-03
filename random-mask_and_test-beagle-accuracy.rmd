@@ -1,0 +1,17 @@
+# Random mask SNPs
+For each SNP site, randomly mask 3 or less samples in it.
+The maksed number could be changed in the "rand_mask_SNP.pl" program
+```
+perl rand_mask_SNP.pl SNP_318merge.confirmed.all.overlap-with-hapmap.vcf SNP_318merge.confirmed.all.overlap-with-hapmap.mask.vcf SNP_318merge.confirmed.all.overlap-with-hapmap.mask.pos
+```
+
+# Run beagle to imputate
+```
+
+```
+
+# Accuracy statistics
+```
+perl accuracy_statistics_1.pl ...
+perl accuracy_statistics_2.pl ...
+```

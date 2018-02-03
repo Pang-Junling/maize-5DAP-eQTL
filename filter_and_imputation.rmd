@@ -1,0 +1,112 @@
+# (1) Calculate sample hetero-rate and filter-out samples with hetero-rate > 2%
+
+The hetero-rate of samples are recorded in the file: /public/home/pangjunling/5DAP_project/analysis/20160801/SNP_318merge.confirmed.all.rename.sample-hetero-rate.xls
+The following 10 samples are deleted from the 318 samples because of their hight hetero-rate:
+
+U8112   46223   1234357 3.74470270756353
+CIMBL100        57215   1362769 4.19843715259152
+JI846   72215   1228582 5.8779145388749
+CIMBL47 65904   1060864 6.21229488416988
+GEMS48  71242   1113291 6.39922535976667
+ZI330   90971   1382331 6.58098530670295
+CIMBL21 78454   1168100 6.71637702251519
+CIMBL4  89268   1319075 6.76746962833804
+GEMS4   111321  1483390 7.50449982809645
+CML298  125413  1275920 9.82922126779108
+
+Find the colomn of the samples in /public/home/pangjunling/5DAP_project/analysis/20160801/SNP_318merge.confirmed.all.rename.vcf :
+
+[pangjunling@log1 20170112]$ perl /public/home/pangjunling/src/find_gene_col_several.pl 1.txt 2.txt 
+U8112   272+1
+CIMBL100        191+1
+JI846   227+1
+CIMBL47 185+1
+GEMS48  283+1
+ZI330   303+1
+CIMBL21 123+1
+CIMBL4  56+1
+GEMS4   325+1
+CML298  193+1
+
+cut -f 1-56,58-123,125-185,187-191,193,195-227,229-272,274-283,285-303,305-325,327- /public/home/pangjunling/5DAP_project/analysis/20160801/SNP_318merge.confirmed.all.rename.vcf > /public/home/pangjunling/5DAP_project/analysis/20170112/5DAP-SNP.rm-ht-samples.vcf
+
+# (2) Filter out SNPs with hetero-rate > 10%, meanwhile filter out those with missing rate > 40% (or 60%)
+ 
+First, calculate the hetero-rate (as well as the missing rate) of SNPs:
+`` 
+perl /public/home/pangjunling/5DAP_project/analysis/20160801/SNP_hetero-rate.pl 5DAP-SNP.rm-ht-samples.vcf 5DAP-SNP.rm-ht-samples.heter-missing-rate.txt &
+```
+Second, select SNPs with  hetero-rate <= 10% && missing rate <= 40% (or 60%):
+more 5DAP-SNP.rm-ht-samples.heter-missing-rate.txt |awk '{if(NR==1 || $5 > 10 || $6 > 40){} else {print $1}}' > heter10_missing40.list &
+more 5DAP-SNP.rm-ht-samples.heter-missing-rate.txt |awk '{if(NR==1 || $5 > 10 || $6 > 60){} else {print $1}}' > heter10_missing60.list &
+
+perl ~/tool/grep_SNP_from_VCF.pl heter10_missing40.list 5DAP-SNP.rm-ht-samples.vcf 5DAP-SNP.rm-ht-samples.heter10_missing40.vcf &
+perl ~/tool/grep_SNP_from_VCF.pl heter10_missing60.list 5DAP-SNP.rm-ht-samples.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.vcf &
+
+# (3) Turn all the hetero sites to missing, calculate the MAF and filter out those with MAF < 2%
+
+Turn all the hetero sites to missing, and record all the masked sites (the position starts from 0)
+perl vcf_hetero-to-missing.pl 5DAP-SNP.rm-ht-samples.heter10_missing40.vcf 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.vcf 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.sites &
+perl vcf_hetero-to-missing.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.sites &
+
+Calculate MAF:
+vcftools --vcf 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.vcf --plink --out 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing
+vcftools --vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.vcf --plink --out 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing
+
+plink --file 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing --freq --out 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing
+plink --file 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing --freq --out 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing
+
+Filter out those with MAF < 2%:
+more 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.frq |awk '{if(NR>1 && $5 >= 0.02){print $2}}' > 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.frq0.02.list &
+...
+
+perl ~/tool/grep_SNP_from_VCF.pl 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.frq0.02.list 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.vcf 5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.MAF2.vcf &
+...
+
+# (4) Imputation 
+
+without ref:
+java -Xmx50g -Xss10m -jar ~/tool/beagle.27Jul16.86a.jar gt=5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.MAF2.vcf out=5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.MAF2.beagle-no-ref
+with ref:
+java -Xmx50g -Xss10m -jar ~/tool/beagle.27Jul16.86a.jar gt=5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.MAF2.vcf ref=/public/home/pangjunling/5DAP_project/analysis/20160803/ref_all_phased.vcf.gz out=5DAP-SNP.rm-ht-samples.heter10_missing40.hetero-to-missing.MAF2.beagle-with-ref impute=false
+
+######### prepare reference vcf file ############
+1. Extract the sites that are overlapped for reference and your datasets 
+
+2. bedtools sort -header -i ref.vcf > ref.sorted.vcf   ## sort if the vcf file is not ordered well
+
+3. java -jar ~/tool/beagle.27Jul16.86a.jar gt=ref.sorted.vcf out=ref.phased.vcf"  ## phase the vcf file
+#################################################
+
+# (5) Mask all the hetero site as missing (./.) both for the new generated hetero sites and the hetero sites that are recorded before imputation
+
+perl final_mask_hetero.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.sites 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf
+perl final_mask_hetero.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.sites 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref.final.vcf
+
+# (6) Change the sample names
+
+sed '1,11 s/5DAP-//g' 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf > 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf.new
+rm  5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf
+mv  5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf.new  5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf
+...
+
+# (7) Merge the imputation results both from "with-ref"  and "no-ref" analysis
+
+perl merge_beagle-ref_no-ref.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-all.final.vcf 
+
+#############################  evaluation of the results ########################
+
+# (8) Compare the imputation consistency of the "with ref" and "no ref" results; only consider the overlapped and former missing ones
+
+perl Missing_imputation_accuracy_statistics.overlapped.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-no-ref.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref_no-ref.consistency.xls
+
+# (9) Compare 5DAP vcf with 15DAP; only consider the overlapped sites
+
+perl SNP_consistency.pl /public/home/pangjunling/5DAP_project/data/20160714/368_marker_correct_pos_v3_hmp_no_imp.rename.rename.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.beagle-with-ref_15DAP.consistency.xls
+...
+
+# (10) Separate the final SNPs into two parts: 1) the originally called SNPs and 2) the imputated SNPs to see which part causes the inconsistency with the 15DAP samples
+
+perl separate_SNP_to_called_and_imputed.pl 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.vcf.new 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.merged.final.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.merged.final.called.vcf 5DAP-SNP.rm-ht-samples.heter10_missing60.hetero-to-missing.MAF2.merged.final.imputed.vcf
+
+
