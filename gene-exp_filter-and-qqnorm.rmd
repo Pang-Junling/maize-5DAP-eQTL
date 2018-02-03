@@ -1,0 +1,69 @@
+# Format of gene expression file (/public/home/pangjunling/5DAP_project/analysis/20160628/5DAP_pro-genes_fpkm-from-norm-counts.xls)
+
+        	GEMS44  JI63    R15	...
+        ABP9.2  0.690391981155245       3.08873374890994        0.379636274508404
+        AC148152.3_FG001        0.0836472419110753      0       0.114990933262604
+        AC148152.3_FG005        8.18313555835121        39.6365137869186        4.74115219211425
+        ...
+
+# Remove the genes whose median expression level is 0
+
+```
+fold.path="/public/home/pangjunling/5DAP_project/analysis/20160628/"
+
+header=read.table(paste(fold.path,"5DAP_pro-genes_fpkm-from-norm-counts.xls",sep=""),header=F,sep="\t",nrows=1)  ## only read the first row as header
+header=t(header[-1])   ## remove the first element
+exp=read.table(paste(fold.path,"5DAP_pro-genes_fpkm-from-norm-counts.xls",sep=""),header=T,row.names=1,sep="\t")
+colnames(exp)=header
+
+median=apply(exp,1,median)
+exp.new=exp[median>0,]
+
+write.table(exp.new, file="5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.xls", row.names=T, quote=F, sep="\t", col.names=NA)
+
+```
+After remove the genes whose median expression level is 0, there left 27261 genes.
+
+# qqnorm
+
+The expression values for each gene were transformed into a standard normal based on rank (to minimize the effects of outlies on the regression scores; Pickrell et al., 2010; Ardlie et al., 2015).
+
+```
+fold.path="/public/home/pangjunling/5DAP_project/analysis/20160629/"
+
+exp=read.table(paste(fold.path,"5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.xls",sep=""),header=T,row.names=1,sep="\t")
+header=read.table(paste(fold.path,"5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.xls",sep=""),header=F,sep="\t",nrows=1) 
+header=t(header[-1])
+colnames(exp)=header
+
+qqnorm=apply(exp,1,function(i) qqnorm(i,plot.it=FALSE)$x)   ### the data has been transposed. Now each row is a sample/imbred line
+rownames(qqnorm)=header
+write.table(qqnorm,file="5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.xls",row.names=T,col.names=NA,quote=F,sep="\t")
+```
+
+now the format of "5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.xls" is as follows:
+
+        ABP9.2  AC148152.3_FG005        AC148152.3_FG008        AC148167.6_FG001	...
+GEMS44  -0.523496291884632      0.234669311123145       0.777087889933104       1.09484418382522
+JI63    0.308290051731513       1.42523926310643        1.09484418382522        -0.514477426064555
+R15     -0.86544889738043       -0.138383790686965      1.02570332514064        1.25166536965179
+...
+
+## Transpose the qqnorm output
+```
+exp=read.table("5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.xls",header=F,sep="\t",na.strings ="")
+exp=t(exp)
+write.table(exp, file="5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls", quote=F, sep="\t", col.names=F,row.names=F,na="")
+```
+now the format of "5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls" is as follows:
+
+        GEMS44  JI63    R15	...
+ABP9.2  -0.523496291884632      0.308290051731513       -0.86544889738043
+AC148152.3_FG005        0.234669311123145       1.42523926310643        -0.138383790686965
+AC148152.3_FG008        0.777087889933104       1.09484418382522        1.02570332514064
+AC148167.6_FG001        1.09484418382522        -0.514477426064555      1.25166536965179
+...
+
+ more 5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls|awk -vOFS="\t" '{if(NR==1){print "<Trait>"$0} else {print $0}}' > 5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls.new
+rm 5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls
+mv 5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls.new 5DAP_pro-genes_fpkm-from-norm-counts.RmMedian0.qqnorm.t.xls

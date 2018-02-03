@@ -1,0 +1,110 @@
+# Required softwares
+  bowtie2
+  tophat
+  samtools
+  R packages: GenomicAlignments, GenomicFeatures, DESeq2 
+
+# Required files:
+  genome fasta file
+  and 
+  corresponding annotation file (gtf or gff3)
+
+# Step1. Map sequenced reads to maize genome 
+```
+  perl run.pl   ## the run.pl is written to run tophat in parallel, basically, the tophat commond is as following:
+
+  tophat -o out_dir -i 5 -I 60000 --library-type fr-unstranded -p 24 -r 250 --mate-std-dev 60 --no-novel-juncs --microexon-search -G /public/home/pangjunling/genome/AGPv3.27/B73.AGPv3.27.gtf /public/home/pangjunling/genome/AGPv3.27/B73.AGPv3.27 *R1.gz *R2.gz     
+
+  ### the -r and --mate-std-dev is accessed based on the method introduced by He Cheng as followint:
+
+  bowtie2 -p 15 -I 0 -X 500 -x /public/home/pangjunling/genome/AGPv3.27/B73.AGPv3.27 -1 *.R1.clean.fastq.gz -2 *.R2.clean.fastq.gz -S test.bam
+  java -Xmx2g -jar ~/tool/picard-tools-1.119/SortSam.jar I=test.sam O=test_sort.sam SORT_ORDER=coordinate
+  java -Xmx2g -jar ~/tool/picard-tools-1.119/CollectInsertSizeMetrics.jar I=test_sort.sam H=test_hist.pdf O=test_out.txt
+
+```  
+
+# Step2. Select uniq mapping reads
+```
+  perl select_uniq_map.pl  ### select_uniq_map.pl is written to run the followint commond in parallel:
+
+  samtools view -h -q 50 accepted_hits.bam | samtools view -bS - > accepted_filtered.bam
+```
+
+# Step3. Count reads of genes from bam (uniq mapping) files 
+```
+## Set the path of files
+files.path="./tophat_uniq_filtered/"  ### directory with bam files
+file.name="5DAP_genes_read-counts.xls"   ## output file
+
+## Read the gene annotation file 
+library("GenomicFeatures")
+txdb=makeTxDbFromGFF("~/genome/AGPv3.27/B73.AGPv3.27.gtf",format="gtf")
+genes_list=exonsBy(txdb,by="gene")
+
+## count reads 
+library("GenomicAlignments")
+fls <- list.files(path=files.path,pattern="*.bam$")
+bamlst <- BamFileList(paste(files.path,fls,sep=""),index=character(),yieldSize=100000,asMates = TRUE)
+se=summarizeOverlaps(features=genes_list,reads=bamlst,mode="Union",singleEnd=FALSE,ignore.strand=TRUE,fragments=TRUE)
+write.table(assays(se)$counts,file=paste(files.path,file.name,sep=""),quote=F,sep='\t',col.names = NA)
+```
+
+# Step4. Change the sample ID to sample name in "5DAP_genes_read-counts.xls"
+```
+  perl sample_name_exchange.pl 5DAP_genes_read-counts.xls name_cor.txt 5DAP_genes_read-counts.rename.xls
+```
+
+# Step5. Count normalization and FPKM calculation
+```
+## Load package
+library("DESeq2")
+
+## Import the counts data 
+lines=readLines("5DAP_sample_names.txt")  ### samples names, corresponding to the first row of "5DAP_genes_read-counts.rename.xls" 
+genes=readLines("5DAP_gene_names.txt")   ### gene names, corresponding to the first column of "5DAP_genes_read-counts.rename.xls" 
+count=as.matrix(read.table("5DAP_genes_read-counts.rename.xls",header=T,row.names=1))
+dimnames(count)=list(genes,lines)
+
+## Normalize counts
+coldata=read.table("5DAP_coldata.txt",header=T,row.names=1) # coldata, the first column list samples, and the following columns record the "condition" or "type" for each sample
+dds=DESeqDataSetFromMatrix(countData=count,colData=coldata,design=~1)  # design=~1 when the condition of all samples are the same
+my.count.raw=counts(dds,normalized=F)
+dds=estimateSizeFactors(dds)
+my.counts.normalized=counts(dds,normalized=T)
+
+## Import gene infomation
+library("GenomicFeatures")
+txdb=makeTxDbFromGFF("~/genome/AGPv3.27/B73.AGPv3.27.gtf",format="gtf")
+genes_list=exonsBy(txdb,by="gene")
+
+## Judge whether the genes_list (from gtf file) and dds (DESeqDataSet) have the same genes and the same order
+if (length(rownames(dds)) == sum(rownames(dds) == names(genes_list))) {print("genes_list and dds have the same gene order")}
+rowRanges(dds) <- genes_list
+
+## Calculate the fpkm of genes
+my.fpkm.from_normalized_counts <- fpkm(dds,robust = TRUE)   ### between-samples normalization
+my.fpkm.from_raw_counts <- fpkm(dds,robust=FALSE)  ### within-sample normalization
+
+## Write the results to files
+write.table(my.counts.normalized,file="5DAP_genes_read-counts.normalized.xls",quote=F,sep='\t',col.names=NA)  
+write.table(my.fpkm.from_normalized_counts,file="5DAP_genes_fpkm-from-norm-counts.xls",quote=F,sep='\t',col.names=NA)
+write.table(my.fpkm.from_raw_counts,file="5DAP_genes_fpkm-from-raw-counts.xls",quote=F,sep='\t',col.names=NA)
+```
+
+# Step6. Remove miRNA genes from the results
+
+```
+## get the miRNA gene lists
+more ~/genome/AGPv3.27/B73.AGPv3.27.gtf|awk '{if($3=="gene" && $0~/miRNA/){print $0}}' > miRNA.txt
+cut -f 9 miRNA.txt |awk -F";" '{print $1}' > miRNA_names.txt
+sed 's/gene_id //g' miRNA_names.txt > miRNA_names.txt.1
+sed 's/"//g' miRNA_names.txt.1 > miRNA_names.txt
+rm miRNA_names.txt.1
+
+## remove the miRNA genes from the results
+grep -v -f miRNA_names.txt 5DAP_genes_fpkm-from-norm-counts.xls > 5DAP_pro-genes_fpkm-from-norm-counts.xls &
+grep -v -f miRNA_names.txt 5DAP_genes_fpkm-from-raw-counts.xls > 5DAP_pro-genes_fpkm-from-raw-counts.xls &
+grep -v -f miRNA_names.txt 5DAP_genes_read-counts.normalized.xls > 5DAP_pro-genes_read-counts.normalized.xls &
+grep -v -f miRNA_names.txt 5DAP_genes_read-counts.rename.xls > 5DAP_pro-genes_read-counts.rename.xls &
+```
+
