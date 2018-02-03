@@ -1,0 +1,17 @@
+grep -v "#" SNP_318merge.keep11and01.vcf|awk '{print $1"\t"$2"\tM"$1"c"$2"\t"$4"\t"$5"\t.\t.\tGATK"}' > SNP_318merge.keep11and01.vcf.new
+
+add header:
+
+##fileformat=VCFv4.1
+##fileDate=20160715
+##source=merged file from 318 5DAP samples.
+##INFO=<ID=GATK,Number=0,Type=Flag,Description="output from GATK workflow">
+#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO
+
+
+cat header.txt SNP_318merge.keep11and01.vcf.new > SNP_318merge.keep11and01.rename.vcf
+
+
+more SNP_318merge.keep11and01.rename.vcf |awk -F"\t" '{if($0~/#/ || (length($4)==1 && length($5)==1)){print $0}}' > SNP_318merge.keep11and01.rename.SNV.vcf
+
+

@@ -1,0 +1,49 @@
+# SNP filtering
+  After calling SNPs using GATK for each sample, we first filter the SNPs according to the quality score and mapping depth.
+  According to the recommendation of the GATK website (http://gatkforums.broadinstitute.org/gatk/discussion/3891/calling-variants-in-rnaseq), we decided that if an SNP with FS>30 and QD<2, then it is an unreliable one, delete it.
+  FS is "Phred-scaled p-value using Fisher's exact test to detect strand bias", the higher the starnd bias is more obvious, and higher possibility to cause false positive.
+  QD is "Variant Confidence/Quality by Depth". The higher QD the more confident a site is.
+```
+perl /public/home/pangjunling/5DAP_project/analysis/20160711/10_SNP_filter_batch.pl
+
+##The output of good SNPs will be in the direcory "/public/home/pangjunling/5DAP_project/SNP_filter_good/"
+```
+
+# Merging filtered SNPs
+```
+perl /public/home/pangjunling/5DAP_project/analysis/20160711/11_SNP_merge.pl
+
+## Basicly, the perl script run the following commond
+java -Xmx60g -jar /public/home/pangjunling/tool/GenomeAnalysisTK-3.6/GenomeAnalysisTK.jar -T CombineVariants -nt 10 -R /public/home/pangjunling/genome/AGPv3.27/B73.AGPv3.27.fa -V:file1 -V:file2 -o SNP_318merge.keep11and01.vcf
+```
+
+# File format reset for the second round SNP calling
+  Because the format of the vcf file contains too many infomations such as the sample names and so on, which will waste a lot of memories when we use it as given sites for the second round SNP calling, so we only keep the necessary info of it.
+  Another thing is the output vcf file also contains many indels or insertions or something, we don't consider them this time. 
+```
+grep -v "#" SNP_318merge.keep11and01.vcf|awk '{print $1"\t"$2"\tM"$1"c"$2"\t"$4"\t"$5"\t.\t.\tGATK"}' > SNP_318merge.keep11and01.vcf.new
+
+Add header information as follows:
+##fileformat=VCFv4.1
+##fileDate=20160715
+##source=merged file from 318 5DAP samples.
+##INFO=<ID=GATK,Number=0,Type=Flag,Description="output from GATK workflow">
+#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO
+
+cat header.txt SNP_318merge.keep11and01.vcf.new > SNP_318merge.keep11and01.rename.vcf
+
+more SNP_318merge.keep11and01.rename.vcf |awk -F"\t" '{if($0~/#/ || (length($4)==1 && length($5)==1)){print $0}}' > SNP_318merge.keep11and01.rename.SNV.vcf
+```
+
+# SNP recall
+  The first round SNP calling only find out the SNP sites, but the genotype (site same as ref) is not give. So we fix it in the second round.
+```
+perl /public/home/pangjunling/5DAP_project/analysis/20160711/13_snp_recall.pl
+
+## The perl scripts run the following commond in parallels:
+java -Xmx8g -jar /public/home/pangjunling/tool/GenomeAnalysisTK-3.6/GenomeAnalysisTK.jar -T HaplotypeCaller  -R /public/home/pangjunling/genome/AGPv3.27/B73.AGPv3.27.fa -I $dir/file1.bam -dontUseSoftClippedBases -stand_call_conf 20 -stand_emit_conf 20 -out_mode EMIT_ALL_SITES -alleles /public/home/pangjunling/5DAP_project/analysis/20160711/SNP_318merge.only11.rename.SNV.vcf -gt_mode GENOTYPE_GIVEN_ALLELES -o $dir2/file2*vcf
+
+## The outputs are all in "/public/home/pangjunling/5DAP_project/SNP_recall/"
+```
+
+
